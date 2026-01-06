@@ -1,8 +1,6 @@
 { lib, stdenv, bash
 , jdk17, jre8
-, buildFHSUserEnv
-, runCommand
-, makeDesktopItem
+, pkgs ? import <nixpkgs> #, buildFHSUserEnv
 # `extraJVMs` allows the user to specify additional JVMs to be made available
 # in `/opt/jvms`. This is a path MultiMC searches for Java installs, so these
 # will all be presented in the Java "auto-detect" list in MultiMC.
@@ -16,7 +14,7 @@
 }:
 let
 multimc = stdenv.mkDerivation rec {
-  name = "multimc-bin";
+  name = "multimc";
 
   src = ./.;
 
@@ -34,18 +32,6 @@ multimc = stdenv.mkDerivation rec {
     license = licenses.mspl;
     maintainers = with maintainers; [ forkk ];
   };
-};
-
-desktopItem = makeDesktopItem rec {
-  name = "MultiMC 5";
-  desktopName = "multimc";
-  exec = "multimc";
-  icon = "multimc";
-  terminal = "false";
-  type = "Application";
-  categories = "Game;";
-  keywords = "game;Minecraft;mmc";
-  startupNotify = "true";
 };
 
 # List of JDKs to smylink inside the path where MultiMC looks for JVMs.
@@ -72,21 +58,34 @@ javaSymlinkPath = "opt/jdks";
 # This works better than pointing MultiMC at a JVM inside the nix store, as
 # doing that may result in said JVM disappearing when the user collects
 # garbage.
-jvmSymlinks = runCommand "multimc-jvm-symlinks" {} ''
+jvmSymlinks = stdenv.mkDerivation rec {
+  name = "multimc-jvm-symlinks";
+  src = null;
+  dontUnpack = true;
+  installPhase = let
+    jvmInstallCmds = builtins.attrValues (builtins.mapAttrs (name: value:
+      "cp -rsHf ${value} $out/${javaSymlinkPath}/${name}"
+    ) jvms);
+  in ''
     mkdir -p $out/${javaSymlinkPath}
   '' + (builtins.concatStringsSep "\n" jvmInstallCmds);
-
-jvmInstallCmds = builtins.attrValues (builtins.mapAttrs (name: value:
-  "cp -rsHf ${value} $out/${javaSymlinkPath}/${name}"
-) jvms);
+};
 in
-buildFHSUserEnv {
+pkgs.buildFHSEnv {
   name = "multimc";
   targetPkgs = pkgs: with pkgs; with xorg; [
     # MultiMC and direct dependencies.
-    multimc qt5.full zlib
+    multimc 
+    # qt libraries (previously libsForQt5.full)
+    libsForQt5.qtscxml        # qt xml
+    libsForQt5.qwt            # qt widgets
+    libsForQt5.qtsvg          # qt svg
+    libsForQt5.qtconnectivity # qt network
+    libsForQt5.qtbase         # qt core
+     zlib
     # Tools used by the start scripts.
-    wget gnused gnutar gnome.zenity
+    wget gnused gnutar 
+    zenity # previously gnome.zenity
     # Base libraries the game needs.
     libX11 libXext libXcursor libXrandr libXxf86vm libpulseaudio libGL
     glfw openal # Needed for the "use native glfw/openal" settings
